@@ -11,10 +11,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 
   width: 450px;
-  height: 500px;
+  height: 130px;
+
+  overflow-y: hidden;
 }
 
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
     monospace;
+}
+
+.fs-7 {
+  font-size: 0.75rem;
 }

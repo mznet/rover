@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { InputGroup, ListGroup } from "react-bootstrap";
 import Form from "react-bootstrap/Form";
 import Bookmark from "./interface/Bookmark";
@@ -54,7 +54,7 @@ function App() {
 
     chrome.runtime.sendMessage(payload, (response) => {
       if (response && response.bookmarks) {
-        setBookmarks(response.bookmarks.slice(0, 10));
+        setBookmarks(response.bookmarks.slice(0, 8));
       }
     });
   };
@@ -89,13 +89,17 @@ function App() {
           return (
             <ListGroup.Item
               onMouseOver={() => handleMouseOver(index)}
-              className="text-truncate"
               key={index}
               active={index === activeIndex}
               onClick={() => handleBookmarkClick(bookmark.url)}
             >
-              <i className="bi bi-bookmark me-2"></i>
-              <span>{bookmark.title}</span>
+              <div className="text-truncate">
+                <i className="bi bi-bookmark me-2"></i>
+                <span>{bookmark.title}</span>
+              </div>
+              <div className="text-truncate text-muted fs-7">
+                {bookmark.url}
+              </div>
             </ListGroup.Item>
           );
         })}
