@@ -1,24 +1,105 @@
-import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { InputGroup, ListGroup } from "react-bootstrap";
+import Form from "react-bootstrap/Form";
+import Bookmark from "./interface/Bookmark";
+import ACTION_TYPE from "./enum/ActionType";
+import Payload from "./interface/Payload";
 
 function App() {
+  const [activeIndex, setActiveIndex] = useState<number>(0);
+  const [keyword, setKeyword] = useState<string>("");
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null); //ts
+
+  const handleBookmarkClick = (url?: string) => {
+    if (!url) return;
+    window.open(url);
+  };
+
+  const handleMouseOver = (index: number) => {
+    setActiveIndex(index);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.code === "ArrowDown") {
+      setActiveIndex((prev) => {
+        if (prev === bookmarks.length - 1) return prev;
+        return prev + 1;
+      });
+    }
+
+    if (e.code === "ArrowUp") {
+      setActiveIndex((prev) => {
+        if (prev === 0) return prev;
+        return prev - 1;
+      });
+    }
+
+    if (e.code === "Enter") {
+      if (bookmarks[activeIndex]?.url) {
+        if (bookmarks[activeIndex].url) {
+          window.open(bookmarks[activeIndex].url);
+        }
+      }
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setKeyword(e.target.value);
+
+    const payload: Payload = {
+      action: ACTION_TYPE.GET_BOOKMARKS,
+      data: e.target.value,
+    };
+
+    chrome.runtime.sendMessage(payload, (response) => {
+      if (response && response.bookmarks) {
+        setBookmarks(response.bookmarks.slice(0, 10));
+      }
+    });
+  };
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div className="p-3" onKeyDown={handleKeyDown}>
+      <InputGroup className="mb-3">
+        <InputGroup.Text id="basic-addon1">
+          <i className="bi bi-search" />
+        </InputGroup.Text>
+        <Form.Control
+          ref={inputRef}
+          placeholder="Bookmark Search"
+          aria-label="Username"
+          aria-describedby="basic-addon1"
+          onChange={handleInputChange}
+          value={keyword}
+        />
+      </InputGroup>
+      <ListGroup>
+        {bookmarks.length === 0 && (
+          <ListGroup.Item className="text-center">
+            <i className="bi bi-x-lg me-2" />
+            <span>No bookmarks found</span>
+          </ListGroup.Item>
+        )}
+        {bookmarks.map((bookmark, index) => {
+          return (
+            <ListGroup.Item
+              onMouseOver={() => handleMouseOver(index)}
+              className="text-truncate"
+              key={index}
+              active={index === activeIndex}
+              onClick={() => handleBookmarkClick(bookmark.url)}
+            >
+              <i className="bi bi-bookmark me-2"></i>
+              <span>{bookmark.title}</span>
+            </ListGroup.Item>
+          );
+        })}
+      </ListGroup>
     </div>
   );
 }

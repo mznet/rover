@@ -1,25 +1,25 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
-  "icons": [
-    {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
-    },
-    {
-      "src": "logo192.png",
-      "type": "image/png",
-      "sizes": "192x192"
-    },
-    {
-      "src": "logo512.png",
-      "type": "image/png",
-      "sizes": "512x512"
-    }
+  "name": "rover",
+  "version": "0.0.1",
+  "manifest_version": 3,
+  "description": "Search your bookmarks easily.",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "permissions": [
+    "bookmarks"
   ],
-  "start_url": ".",
-  "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "commands": {
+    "run-foo": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+O",
+        "mac": "Command+Shift+O"
+      },
+      "description": "Run \"foo\" on the current page."
+    }
+  },
+  "background": {
+    "service_worker": "./static/js/background.js",
+    "type": "module"
+  }
 }
