@@ -65,6 +65,11 @@ function App() {
 
   return (
     <div className="p-3" onKeyDown={handleKeyDown}>
+      {bookmarks.length === 0 && (
+        <div className="mb-3 text-center">
+          <img src="./icon.png" style={{ height: "36px" }} alt="rover logo" />
+        </div>
+      )}
       <InputGroup className="mb-3">
         <InputGroup.Text id="basic-addon1">
           <i className="bi bi-search" />
