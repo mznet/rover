@@ -43,3 +43,9 @@ $list-group-border-width: 1px;
     border-top-right-radius: 0;
   }
 }
+
+.text-graident {
+  background: linear-gradient(to right, #536cff, #6a3de8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

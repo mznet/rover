@@ -99,7 +99,13 @@ function App() {
               onClick={() => handleBookmarkClick(bookmark.url)}
             >
               <div className="text-truncate">
-                <i className="bi bi-bookmark me-2"></i>
+                <span className="me-2 ">
+                  {index === activeIndex ? (
+                    <i className="bi bi-bookmark-fill text-graident"></i>
+                  ) : (
+                    <i className="bi bi-bookmark"></i>
+                  )}
+                </span>
                 <span>{bookmark.title}</span>
               </div>
               <div className="text-truncate text-muted fs-7">
