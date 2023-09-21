@@ -1,6 +1,12 @@
 $input-focus-border-color: none;
 $input-focus-box-shadow: none;
 
+$list-group-active-bg: none;
+$list-group-active-border-color: transparent;
+
+$list-group-border-color: transparent;
+$list-group-border-width: 1px;
+
 .input-group {
   border: 1px solid transparent;
   background-image: linear-gradient(#6a3de8, #6a3de8),
@@ -8,4 +14,32 @@ $input-focus-box-shadow: none;
   background-origin: border-box;
   background-clip: content-box, border-box;
   border-radius: var(--bs-border-radius);
+}
+
+.list-group-item.active {
+  position: relative;
+}
+
+.list-group-item.active::before {
+  border-radius: var(--bs-border-radius);
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  background: linear-gradient(45deg, #536cff, #6a3de8);
+  -webkit-mask: linear-gradient(red 0 0) content-box, linear-gradient(blue 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.list-group {
+  .list-group-item:first-child::before {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .list-group-item:last-child::before {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
 }
