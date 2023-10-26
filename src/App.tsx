@@ -5,6 +5,8 @@ import Bookmark from "./interface/Bookmark";
 import ACTION_TYPE from "./enum/ActionType";
 import Payload from "./interface/Payload";
 
+const MAX_BOOKMARKS_COUNT = 8;
+
 function App() {
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [keyword, setKeyword] = useState<string>("");
@@ -54,7 +56,11 @@ function App() {
 
     chrome.runtime.sendMessage(payload, (response) => {
       if (response && response.bookmarks) {
-        setBookmarks(response.bookmarks.slice(0, 8));
+        setBookmarks(response.bookmarks.slice(0, MAX_BOOKMARKS_COUNT));
+
+        if (response.bookmarks.length >= activeIndex) {
+          setActiveIndex(0);
+        }
       }
     });
   };
