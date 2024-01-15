@@ -1,14 +1,12 @@
 {
   "name": "rover",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "manifest_version": 3,
   "description": "Search your bookmarks easily.",
   "action": {
     "default_popup": "index.html"
   },
-  "permissions": [
-    "bookmarks"
-  ],
+  "permissions": ["bookmarks"],
   "commands": {
     "run-foo": {
       "suggested_key": {
