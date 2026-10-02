@@ -4,6 +4,7 @@ import Form from "react-bootstrap/Form";
 import Bookmark from "./interface/Bookmark";
 import ACTION_TYPE from "./enum/ActionType";
 import Payload from "./interface/Payload";
+import Highlight from "./component/Highlight";
 
 const MAX_BOOKMARKS_COUNT = 8;
 
@@ -13,9 +14,15 @@ function App() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const inputRef = useRef<HTMLInputElement>(null); //ts
 
-  const handleBookmarkClick = (url?: string) => {
-    if (!url) return;
-    window.open(url);
+  const openBookmark = (bookmark?: Bookmark) => {
+    if (!bookmark?.url) return;
+
+    const payload: Payload = {
+      action: ACTION_TYPE.OPEN_BOOKMARK,
+      data: bookmark.id,
+    };
+
+    chrome.runtime.sendMessage(payload);
   };
 
   const handleMouseOver = (index: number) => {
@@ -38,11 +45,7 @@ function App() {
     }
 
     if (e.code === "Enter") {
-      if (bookmarks[activeIndex]?.url) {
-        if (bookmarks[activeIndex].url) {
-          window.open(bookmarks[activeIndex].url);
-        }
-      }
+      openBookmark(bookmarks[activeIndex]);
     }
   };
 
@@ -102,7 +105,7 @@ function App() {
               onMouseOver={() => handleMouseOver(index)}
               key={index}
               active={index === activeIndex}
-              onClick={() => handleBookmarkClick(bookmark.url)}
+              onClick={() => openBookmark(bookmark)}
             >
               <div className="text-truncate">
                 <span className="me-2 ">
@@ -112,10 +115,12 @@ function App() {
                     <i className="bi bi-bookmark"></i>
                   )}
                 </span>
-                <span>{bookmark.title}</span>
+                <span>
+                  <Highlight text={bookmark.title} keyword={keyword} />
+                </span>
               </div>
               <div className="text-truncate text-muted fs-7">
-                {bookmark.url}
+                <Highlight text={bookmark.url ?? ""} keyword={keyword} />
               </div>
             </ListGroup.Item>
           );
