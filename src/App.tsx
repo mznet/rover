@@ -13,6 +13,7 @@ function App() {
   const [keyword, setKeyword] = useState<string>("");
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const inputRef = useRef<HTMLInputElement>(null); //ts
+  const lastRequestIdRef = useRef<number>(0);
 
   const openBookmark = (bookmark?: Bookmark) => {
     if (!bookmark?.url) return;
@@ -49,23 +50,42 @@ function App() {
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setKeyword(e.target.value);
-
+  const searchBookmarks = (value: string, isComposing: boolean) => {
+    const requestId = ++lastRequestIdRef.current;
     const payload: Payload = {
       action: ACTION_TYPE.GET_BOOKMARKS,
-      data: e.target.value,
+      data: value,
     };
 
     chrome.runtime.sendMessage(payload, (response) => {
-      if (response && response.bookmarks) {
-        setBookmarks(response.bookmarks.slice(0, MAX_BOOKMARKS_COUNT));
+      // Drop responses that arrive after a newer search was sent.
+      if (requestId !== lastRequestIdRef.current) return;
+      if (!response || !response.bookmarks) return;
 
-        if (response.bookmarks.length >= activeIndex) {
-          setActiveIndex(0);
-        }
-      }
+      // While an IME is composing (e.g. "위" -> "윜" -> "위키"), the
+      // intermediate syllable often matches nothing. Keep the previous
+      // results instead of flashing "No bookmarks found".
+      if (isComposing && response.bookmarks.length === 0) return;
+
+      setBookmarks(response.bookmarks.slice(0, MAX_BOOKMARKS_COUNT));
+      setActiveIndex(0);
     });
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setKeyword(e.target.value);
+    searchBookmarks(
+      e.target.value,
+      (e.nativeEvent as InputEvent).isComposing ?? false
+    );
+  };
+
+  const handleCompositionEnd = (
+    e: React.CompositionEvent<HTMLInputElement>
+  ) => {
+    // Search once more with the committed text so a result list kept
+    // during composition is replaced by the real result.
+    searchBookmarks(e.currentTarget.value, false);
   };
 
   useEffect(() => {
@@ -89,6 +109,7 @@ function App() {
           aria-label="Username"
           aria-describedby="basic-addon1"
           onChange={handleInputChange}
+          onCompositionEnd={handleCompositionEnd}
           value={keyword}
         />
       </InputGroup>
