@@ -14,6 +14,7 @@ function App() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const inputRef = useRef<HTMLInputElement>(null); //ts
   const lastRequestIdRef = useRef<number>(0);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   const openBookmark = (bookmark?: Bookmark) => {
     if (!bookmark?.url) return;
@@ -26,7 +27,18 @@ function App() {
     chrome.runtime.sendMessage(payload);
   };
 
-  const handleMouseOver = (index: number) => {
+  const handleMouseMove = (
+    e: React.MouseEvent<HTMLElement>,
+    index: number
+  ) => {
+    // When the list re-renders under a resting pointer, Chrome reports
+    // the new item as hovered without the mouse moving. Only follow the
+    // pointer when it actually moved, so a fresh result keeps the top
+    // (most opened) bookmark selected.
+    const last = lastPointerRef.current;
+    if (last && last.x === e.screenX && last.y === e.screenY) return;
+
+    lastPointerRef.current = { x: e.screenX, y: e.screenY };
     setActiveIndex(index);
   };
 
@@ -123,7 +135,7 @@ function App() {
         {bookmarks.map((bookmark, index) => {
           return (
             <ListGroup.Item
-              onMouseOver={() => handleMouseOver(index)}
+              onMouseMove={(e) => handleMouseMove(e, index)}
               key={index}
               active={index === activeIndex}
               onClick={() => openBookmark(bookmark)}
