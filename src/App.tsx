@@ -46,9 +46,14 @@ function App() {
   const [indexMode, setIndexMode] = useState<boolean>(false);
   const [launchingIndex, setLaunchingIndex] = useState<number | null>(null);
   const [intro, setIntro] = useState<boolean>(true);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null); //ts
   const lastRequestIdRef = useRef<number>(0);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Set by the keyboard so only keyboard selection scrolls the list;
+  // hovering a half visible row should not move it under the pointer.
+  const followSelectionRef = useRef<boolean>(false);
   const pendingDigitRef = useRef<{ digit: number; timer: number } | null>(
     null
   );
@@ -68,6 +73,44 @@ function App() {
     };
 
     window.setTimeout(() => sendMessage(payload), LAUNCH_DELAY_MS);
+  };
+
+  const canReorder = isInitialScreen && !indexMode;
+
+  const saveOrder = (list: Bookmark[]) => {
+    sendMessage({
+      action: ACTION_TYPE.REORDER_STARRED,
+      data: "",
+      ids: list.map((b) => b.id),
+    });
+  };
+
+  const moved = (list: Bookmark[], from: number, to: number) => {
+    const next = [...list];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    return next;
+  };
+
+  // Drag and drop: rows shift live while dragging, saved on release.
+  const handleDragStart = (e: React.DragEvent, bookmark: Bookmark) => {
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    setDraggingId(bookmark.id);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    if (draggingId === null) return;
+    e.preventDefault();
+    const from = bookmarks.findIndex((b) => b.id === draggingId);
+    if (from === -1 || from === index) return;
+    setBookmarks(moved(bookmarks, from, index));
+    setActiveIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    if (draggingId === null) return;
+    setDraggingId(null);
+    saveOrder(bookmarks);
   };
 
   const toggleStar = (e: React.MouseEvent, bookmark: Bookmark) => {
@@ -135,10 +178,13 @@ function App() {
     if (last && last.x === e.screenX && last.y === e.screenY) return;
 
     lastPointerRef.current = { x: e.screenX, y: e.screenY };
+    followSelectionRef.current = false;
     setActiveIndex(index);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    followSelectionRef.current = true;
+
     // Command toggles the number badges on the initial screen.
     if (e.key === "Meta") {
       if (!e.repeat && isInitialScreen && bookmarks.length > 0) {
@@ -162,6 +208,22 @@ function App() {
         e.preventDefault();
         return;
       }
+    }
+
+    // Option + Up/Down moves the selected row on the initial screen.
+    if (
+      canReorder &&
+      e.altKey &&
+      (e.code === "ArrowUp" || e.code === "ArrowDown")
+    ) {
+      e.preventDefault();
+      const to = activeIndex + (e.code === "ArrowUp" ? -1 : 1);
+      if (to < 0 || to >= bookmarks.length) return;
+      const next = moved(bookmarks, activeIndex, to);
+      setBookmarks(next);
+      setActiveIndex(to);
+      saveOrder(next);
+      return;
     }
 
     if (e.code === "ArrowDown") {
@@ -203,6 +265,8 @@ function App() {
       const limit =
         value.trim() === "" ? MAX_STARRED_COUNT : MAX_BOOKMARKS_COUNT;
       setBookmarks(response.bookmarks.slice(0, limit));
+      // New results start at the top row, so show the top of the list.
+      if (listRef.current) listRef.current.scrollTop = 0;
       setActiveIndex(0);
     });
   };
@@ -224,6 +288,25 @@ function App() {
     // during composition is replaced by the real result.
     searchBookmarks(e.currentTarget.value, false);
   };
+
+  // Keep the keyboard selected row inside the list's visible area.
+  // The list has scroll-behavior: smooth, so these jumps animate.
+  useEffect(() => {
+    if (!followSelectionRef.current) return;
+    followSelectionRef.current = false;
+
+    const list = listRef.current;
+    const item = list?.children[activeIndex] as HTMLElement | undefined;
+    if (!list || !item) return;
+
+    const listBox = list.getBoundingClientRect();
+    const itemBox = item.getBoundingClientRect();
+    if (itemBox.top < listBox.top) {
+      list.scrollTop += itemBox.top - listBox.top;
+    } else if (itemBox.bottom > listBox.bottom) {
+      list.scrollTop += itemBox.bottom - listBox.bottom;
+    }
+  }, [activeIndex, bookmarks]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -253,7 +336,10 @@ function App() {
           value={keyword}
         />
       </InputGroup>
-      <ListGroup className={intro ? "bookmark-list intro" : "bookmark-list"}>
+      <ListGroup
+        ref={listRef}
+        className={intro ? "bookmark-list intro" : "bookmark-list"}
+      >
         {bookmarks.length === 0 && (
           <ListGroup.Item className="text-center">
             {isInitialScreen ? (
@@ -276,12 +362,18 @@ function App() {
           return (
             <ListGroup.Item
               onMouseMove={(e) => handleMouseMove(e, index)}
+              draggable={canReorder}
+              onDragStart={(e) => handleDragStart(e, bookmark)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDrop={(e) => e.preventDefault()}
+              onDragEnd={handleDragEnd}
               key={bookmark.id}
               active={isActive}
               className={[
                 "d-flex align-items-center",
                 isInitialScreen ? "py-2" : "",
                 isLaunching ? "launching" : "",
+                bookmark.id === draggingId ? "dragging" : "",
               ].join(" ")}
               onClick={() => openBookmark(index)}
             >
@@ -291,7 +383,12 @@ function App() {
                 ) : isLaunching ? (
                   <i className="bi bi-box-arrow-up-right text-graident"></i>
                 ) : favicon ? (
-                  <img className="favicon" src={favicon} alt="" />
+                  <img
+                    className="favicon"
+                    src={favicon}
+                    alt=""
+                    draggable={false}
+                  />
                 ) : (
                   <i className="bi bi-bookmark"></i>
                 )}

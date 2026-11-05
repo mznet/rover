@@ -165,6 +165,34 @@ describe("initial screen with starred bookmarks", () => {
     expect(openedIds()).toEqual(["1"]);
   });
 
+  const rowTitles = () =>
+    Array.from(document.querySelectorAll(".list-group-item")).map(
+      (el) => el.textContent
+    );
+
+  const savedOrder = () =>
+    sendMessage.mock.calls
+      .filter(([p]) => p.action === ACTION_TYPE.REORDER_STARRED)
+      .map(([p]) => p.ids);
+
+  test("Option + Down moves the selected row and saves the order", () => {
+    render(<App />);
+    fireEvent.keyDown(input(), { code: "ArrowDown", altKey: true });
+    expect(rowTitles()[0]).toContain("Starred 2");
+    expect(rowTitles()[1]).toContain("Starred 1");
+    expect(savedOrder()[0].slice(0, 3)).toEqual(["2", "1", "3"]);
+  });
+
+  test("dragging a row onto another moves it there", () => {
+    render(<App />);
+    const rows = document.querySelectorAll(".list-group-item");
+    fireEvent.dragStart(rows[0]);
+    fireEvent.dragOver(rows[2]);
+    fireEvent.dragEnd(rows[0]);
+    expect(rowTitles()[2]).toContain("Starred 1");
+    expect(savedOrder()[0].slice(0, 3)).toEqual(["2", "3", "1"]);
+  });
+
   test("unstarring on the initial screen keeps the row to star again", () => {
     render(<App />);
     fireEvent.click(screen.getAllByLabelText("Unstar")[0]);

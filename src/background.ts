@@ -98,6 +98,15 @@ const asyncFunctionWithAwait = async (
     );
     sendResponse({ starred: !isStarred });
   }
+
+  if (request.action === ACTION_TYPE.REORDER_STARRED) {
+    const starred = await getStarred();
+    // The popup may list rows that were just unstarred, and starred ids
+    // past the 15 it shows; drop the former and keep the latter at the end.
+    const ordered = (request.ids ?? []).filter((id) => starred.includes(id));
+    const rest = starred.filter((id) => !ordered.includes(id));
+    await setStarred([...ordered, ...rest]);
+  }
 };
 
 chrome.runtime.onMessage.addListener(

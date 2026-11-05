@@ -98,6 +98,11 @@ $list-group-border-width: 1px;
   width: 1.5rem;
 }
 
+// Row being dragged to a new place on the initial screen.
+.bookmark-list .list-group-item.dragging {
+  opacity: 0.4;
+}
+
 .favicon {
   width: 16px;
   height: 16px;
@@ -180,6 +185,14 @@ $list-group-border-width: 1px;
 .bookmark-list {
   max-height: 500px;
   overflow-y: auto;
+  // Keyboard scrolling animates; wheel and trackpad are unaffected.
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bookmark-list {
+    scroll-behavior: auto;
+  }
 }
 
 // Popup opening: the whole popup fades and drops in, then the first
