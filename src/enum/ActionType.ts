@@ -1,6 +1,7 @@
 enum ACTION_TYPE {
   GET_BOOKMARKS,
   OPEN_BOOKMARK,
+  TOGGLE_STAR,
 }
 
 export default ACTION_TYPE;

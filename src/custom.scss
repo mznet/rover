@@ -1,3 +1,6 @@
+// Search input (and its icon addon) at 14px.
+$input-font-size: 14px;
+
 $input-focus-border-color: none;
 $input-focus-box-shadow: none;
 
@@ -5,15 +8,51 @@ $list-group-active-bg: none;
 $list-group-active-border-color: transparent;
 
 $list-group-border-color: transparent;
+// Search result rows: 16px top and bottom.
+$list-group-item-padding-y: 16px;
 $list-group-border-width: 1px;
 
+// Registered so the angle can be animated; a plain custom property
+// would jump instead of rotating.
+@property --rover-border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+// Search box border: a light that runs around the gradient border.
 .input-group {
   border: 1px solid transparent;
   background-image: linear-gradient(#6a3de8, #6a3de8),
-    linear-gradient(to right, #536cff, #6a3de8);
+    conic-gradient(
+      from var(--rover-border-angle),
+      #536cff 0deg,
+      #6a3de8 200deg,
+      #b9a4ff 300deg,
+      #ffffff 330deg,
+      #536cff 360deg
+    );
   background-origin: border-box;
   background-clip: content-box, border-box;
   border-radius: var(--bs-border-radius);
+  animation: rover-border-spin 6s linear infinite;
+}
+
+@keyframes rover-border-spin {
+  to {
+    --rover-border-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .input-group {
+    animation: none;
+  }
+}
+
+// Search results at 14px.
+.list-group-item {
+  font-size: 14px;
 }
 
 .list-group-item.active {
@@ -30,6 +69,9 @@ $list-group-border-width: 1px;
   -webkit-mask: linear-gradient(red 0 0) content-box, linear-gradient(blue 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
+  // The overlay covers the whole row (the mask hides it but does not
+  // stop hit testing), so let clicks through to the star button.
+  pointer-events: none;
 }
 
 .list-group {
@@ -48,4 +90,131 @@ $list-group-border-width: 1px;
   background: linear-gradient(to right, #536cff, #6a3de8);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.lead-icon {
+  display: inline-flex;
+  justify-content: center;
+  width: 1.5rem;
+}
+
+.favicon {
+  width: 16px;
+  height: 16px;
+}
+
+.index-badge {
+  display: inline-block;
+  min-width: 1.5rem;
+  padding: 0 0.25rem;
+  border-radius: 0.375rem;
+  background: linear-gradient(45deg, #536cff, #6a3de8);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+// Leave room on the right of every row for the star's hit area.
+.bookmark-list .list-group-item {
+  padding-right: 48px;
+}
+
+// Full-height 44px strip on the right edge, so the star is easy to hit
+// and a near miss does not open the page.
+.star-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0 var(--bs-border-radius) var(--bs-border-radius) 0;
+  background: none;
+  color: var(--bs-secondary-color);
+  line-height: 1;
+  opacity: 0.6;
+
+  &:hover {
+    opacity: 1;
+    background-color: rgba(106, 61, 232, 0.15);
+  }
+
+  // Purple gradient star, lighter than the border so it reads on dark.
+  .starred {
+    background: linear-gradient(45deg, #7b8cff, #a37bff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  &:has(.starred) {
+    opacity: 1;
+  }
+}
+
+// Played on the chosen bookmark right before its tab opens.
+.bookmark-list .list-group-item.launching {
+  z-index: 3;
+  animation: rover-launch 0.25s ease-out forwards;
+}
+
+@keyframes rover-launch {
+  0% {
+    transform: scale(1);
+    background-color: transparent;
+  }
+  40% {
+    transform: scale(1.02);
+    background-color: rgba(106, 61, 232, 0.55);
+  }
+  100% {
+    transform: scale(1);
+    background-color: rgba(83, 108, 255, 0.35);
+  }
+}
+
+// Chrome caps popups at 600px tall; 15 compact rows fit, scroll otherwise.
+.bookmark-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+// Popup opening: the whole popup fades and drops in, then the first
+// list rows follow one after another.
+.popup-enter {
+  animation: rover-popup-in 0.22s ease-out both;
+}
+
+.bookmark-list.intro .list-group-item {
+  animation: rover-row-in 0.24s ease-out both;
+
+  @for $i from 1 through 15 {
+    &:nth-child(#{$i}) {
+      animation-delay: #{($i - 1) * 18}ms;
+    }
+  }
+}
+
+@keyframes rover-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes rover-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popup-enter,
+  .bookmark-list.intro .list-group-item {
+    animation: none;
+  }
 }
