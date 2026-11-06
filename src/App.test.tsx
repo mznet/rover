@@ -15,11 +15,9 @@ test("does not render a logo", () => {
   expect(screen.queryByAltText("rover logo")).not.toBeInTheDocument();
 });
 
-test("shows a star hint on an empty initial screen", () => {
+test("shows a tag hint on an empty initial screen", () => {
   render(<App />);
-  expect(
-    screen.getByText("Star a bookmark to pin it here")
-  ).toBeInTheDocument();
+  expect(screen.getByText("Tag a bookmark to see it here")).toBeInTheDocument();
 });
 
 describe("with search results", () => {
@@ -33,7 +31,7 @@ describe("with search results", () => {
     (global as any).chrome = {
       runtime: {
         sendMessage: jest.fn((payload, callback) => {
-          // The initial (empty) query returns no starred bookmarks.
+          // The initial (empty) query returns no tagged bookmarks.
           if (payload.action === ACTION_TYPE.GET_BOOKMARKS)
             callback?.({ bookmarks: payload.data ? results : [] });
         }),
@@ -78,6 +76,37 @@ describe("with search results", () => {
     expect(activeTitle()).toContain("Most opened");
   });
 
+  test("shows no results for an uncommitted syllable after a wait", async () => {
+    await search();
+    jest.useFakeTimers();
+    try {
+      // "대" matches nothing; jsdom has no isComposing, so mark it.
+      const event = new Event("input", { bubbles: true });
+      Object.defineProperty(event, "isComposing", { value: true });
+      const input = screen.getByPlaceholderText(
+        "Bookmark Search"
+      ) as HTMLInputElement;
+      (global as any).chrome.runtime.sendMessage.mockImplementation(
+        (_: unknown, callback: any) => callback?.({ bookmarks: [] })
+      );
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )!.set!;
+      setValue.call(input, "대");
+      fireEvent(input, event);
+
+      // Kept during the wait, so an intermediate syllable does not flash.
+      expect(screen.getByText("Most opened")).toBeInTheDocument();
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(screen.getByText("No bookmarks found")).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test("follows the pointer when it actually moves", async () => {
     await search();
     fireEvent.mouseMove(screen.getByText("Second"), {
@@ -88,12 +117,12 @@ describe("with search results", () => {
   });
 });
 
-describe("initial screen with starred bookmarks", () => {
-  const starred = Array.from({ length: 12 }, (_, i) => ({
+describe("initial screen with tagged bookmarks", () => {
+  const tagged = Array.from({ length: 12 }, (_, i) => ({
     id: String(i + 1),
-    title: `Starred ${i + 1}`,
+    title: `Tagged ${i + 1}`,
     url: `https://s${i + 1}.example`,
-    starred: true,
+    tags: ["work"],
   }));
   let sendMessage: jest.Mock;
 
@@ -101,9 +130,7 @@ describe("initial screen with starred bookmarks", () => {
     jest.useFakeTimers();
     sendMessage = jest.fn((payload, callback) => {
       if (payload.action === ACTION_TYPE.GET_BOOKMARKS)
-        callback?.({ bookmarks: starred });
-      if (payload.action === ACTION_TYPE.TOGGLE_STAR)
-        callback?.({ starred: false });
+        callback?.({ bookmarks: tagged, tags: ["work"], tag: "work" });
     });
     (global as any).chrome = { runtime: { sendMessage } };
   });
@@ -120,13 +147,16 @@ describe("initial screen with starred bookmarks", () => {
 
   const input = () => screen.getByPlaceholderText("Bookmark Search");
 
-  test("lists starred bookmarks in their given order", () => {
+  test("opens on the first tag's bookmarks in their given order", () => {
     render(<App />);
     const titles = Array.from(
       document.querySelectorAll(".list-group-item")
     ).map((el) => el.textContent);
-    expect(titles[0]).toContain("Starred 1");
-    expect(titles[11]).toContain("Starred 12");
+    expect(titles[0]).toContain("Tagged 1");
+    expect(titles[11]).toContain("Tagged 12");
+    expect(screen.getByRole("tab", { selected: true })).toHaveTextContent(
+      "#work"
+    );
   });
 
   test("Command shows numbers and a digit opens that bookmark", () => {
@@ -136,7 +166,7 @@ describe("initial screen with starred bookmarks", () => {
 
     fireEvent.keyDown(input(), { key: "3", code: "Digit3" });
     expect(document.querySelector(".launching")?.textContent).toContain(
-      "Starred 3"
+      "Tagged 3"
     );
     act(() => {
       jest.runAllTimers();
@@ -165,43 +195,64 @@ describe("initial screen with starred bookmarks", () => {
     expect(openedIds()).toEqual(["1"]);
   });
 
-  const rowTitles = () =>
-    Array.from(document.querySelectorAll(".list-group-item")).map(
-      (el) => el.textContent
+});
+
+describe("tags", () => {
+  const home = [
+    { id: "1", title: "Home one", url: "https://a.example", tags: ["home"] },
+  ];
+  const work = [
+    { id: "2", title: "Work one", url: "https://w.example", tags: ["work"] },
+  ];
+  let sendMessage: jest.Mock;
+
+  beforeEach(() => {
+    sendMessage = jest.fn((payload, callback) => {
+      if (payload.action === ACTION_TYPE.GET_BOOKMARKS)
+        callback?.({
+          bookmarks: payload.tag === "work" ? work : home,
+          tags: ["home", "work"],
+          tag: payload.tag ?? "home",
+        });
+      if (payload.action === ACTION_TYPE.SET_TAGS)
+        callback?.({ tags: ["fun", "home"] });
+    });
+    (global as any).chrome = { runtime: { sendMessage } };
+  });
+
+  afterEach(() => {
+    delete (global as any).chrome;
+  });
+
+  const input = () => screen.getByPlaceholderText("Bookmark Search");
+
+  test("arrow keys switch to a tag tab and back", () => {
+    render(<App />);
+    expect(screen.getByText("Home one")).toBeInTheDocument();
+
+    fireEvent.keyDown(input(), { key: "ArrowRight", code: "ArrowRight" });
+    expect(screen.getByText("Work one")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { selected: true })).toHaveTextContent(
+      "#work"
     );
 
-  const savedOrder = () =>
-    sendMessage.mock.calls
-      .filter(([p]) => p.action === ACTION_TYPE.REORDER_STARRED)
-      .map(([p]) => p.ids);
-
-  test("Option + Down moves the selected row and saves the order", () => {
-    render(<App />);
-    fireEvent.keyDown(input(), { code: "ArrowDown", altKey: true });
-    expect(rowTitles()[0]).toContain("Starred 2");
-    expect(rowTitles()[1]).toContain("Starred 1");
-    expect(savedOrder()[0].slice(0, 3)).toEqual(["2", "1", "3"]);
+    fireEvent.keyDown(input(), { key: "ArrowLeft", code: "ArrowLeft" });
+    expect(screen.getByText("Home one")).toBeInTheDocument();
   });
 
-  test("dragging a row onto another moves it there", () => {
+  test("saves tags typed in the row editor", () => {
     render(<App />);
-    const rows = document.querySelectorAll(".list-group-item");
-    fireEvent.dragStart(rows[0]);
-    fireEvent.dragOver(rows[2]);
-    fireEvent.dragEnd(rows[0]);
-    expect(rowTitles()[2]).toContain("Starred 1");
-    expect(savedOrder()[0].slice(0, 3)).toEqual(["2", "3", "1"]);
-  });
+    fireEvent.click(screen.getByLabelText("Edit tags"));
+    const editor = screen.getByLabelText("Tags");
+    fireEvent.change(editor, { target: { value: "home, fun" } });
+    fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
 
-  test("unstarring on the initial screen keeps the row to star again", () => {
-    render(<App />);
-    fireEvent.click(screen.getAllByLabelText("Unstar")[0]);
-    expect(screen.getByText("Starred 1")).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Star")).toHaveLength(1);
-
-    act(() => {
-      jest.runAllTimers();
-    });
-    expect(openedIds()).toEqual([]);
+    const call = sendMessage.mock.calls.find(
+      ([p]) => p.action === ACTION_TYPE.SET_TAGS
+    );
+    expect(call?.[0]).toMatchObject({ data: "1", tags: ["home", " fun"] });
+    // Enter saved instead of opening the bookmark.
+    expect(document.querySelector(".launching")).toBeNull();
+    expect(screen.getByRole("tab", { name: "#fun" })).toBeInTheDocument();
   });
 });

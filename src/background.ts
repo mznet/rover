@@ -3,9 +3,10 @@ import Bookmark from "./interface/Bookmark";
 import Payload from "./interface/Payload";
 
 const OPEN_COUNTS_KEY = "openCounts";
-const STARRED_KEY = "starred";
+const TAGS_KEY = "tags";
 
 type OpenCounts = { [bookmarkId: string]: number };
+type Tags = { [bookmarkId: string]: string[] };
 
 const getOpenCounts = async (): Promise<OpenCounts> => {
   const result = await chrome.storage.local.get(OPEN_COUNTS_KEY);
@@ -16,22 +17,43 @@ const setOpenCounts = (openCounts: OpenCounts) => {
   return chrome.storage.local.set({ [OPEN_COUNTS_KEY]: openCounts });
 };
 
-// Starred bookmark ids, in the order they were starred.
-const getStarred = async (): Promise<string[]> => {
-  const result = await chrome.storage.local.get(STARRED_KEY);
-  return result[STARRED_KEY] ?? [];
+const getTags = async (): Promise<Tags> => {
+  const result = await chrome.storage.local.get(TAGS_KEY);
+  return result[TAGS_KEY] ?? {};
 };
 
-const setStarred = (starred: string[]) => {
-  return chrome.storage.local.set({ [STARRED_KEY]: starred });
+const setTags = (tags: Tags) => {
+  return chrome.storage.local.set({ [TAGS_KEY]: tags });
 };
 
-const getStarredBookmarks = async (): Promise<Bookmark[]> => {
-  const starred = await getStarred();
+// Every tag in use, alphabetically, for the initial screen's tabs.
+const tagNames = (tags: Tags) =>
+  Array.from(new Set(Object.values(tags).flat())).sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+// Trimmed, non-empty and unique, in the order given.
+const cleanTags = (tags: string[] = []) =>
+  Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
+
+const toBookmark = (
+  b: chrome.bookmarks.BookmarkTreeNode,
+  tags: Tags
+): Bookmark => ({
+  id: b.id,
+  title: b.title,
+  url: b.url,
+  tags: tags[b.id] ?? [],
+});
+
+const getBookmarksByIds = async (
+  ids: string[],
+  tags: Tags
+): Promise<Bookmark[]> => {
   // Fetch one by one: chrome.bookmarks.get rejects the whole batch when
   // any id is gone.
   const found = await Promise.all(
-    starred.map((id) =>
+    ids.map((id) =>
       chrome.bookmarks.get(id).then(
         ([b]) => b,
         () => undefined
@@ -40,7 +62,7 @@ const getStarredBookmarks = async (): Promise<Bookmark[]> => {
   );
   return found
     .filter((b): b is chrome.bookmarks.BookmarkTreeNode => !!b?.url)
-    .map((b) => ({ id: b.id, title: b.title, url: b.url, starred: true }));
+    .map((b) => toBookmark(b, tags));
 };
 
 const asyncFunctionWithAwait = async (
@@ -49,30 +71,27 @@ const asyncFunctionWithAwait = async (
   sendResponse: any
 ) => {
   if (request.action === ACTION_TYPE.GET_BOOKMARKS) {
-    // Empty query is the initial screen: starred bookmarks in star order,
-    // not sorted by open count.
+    const [openCounts, tags] = await Promise.all([getOpenCounts(), getTags()]);
+    const byOpenCount = (a: Bookmark, b: Bookmark) =>
+      (openCounts[b.id] ?? 0) - (openCounts[a.id] ?? 0);
+
+    // Empty query is the initial screen: one tag's bookmarks, most opened
+    // first (the first tag when none is asked). Tag names feed the tabs.
     if (!request.data.trim()) {
-      sendResponse({ bookmarks: await getStarredBookmarks() });
+      const names = tagNames(tags);
+      const tag = request.tag ?? names[0] ?? null;
+      const ids = Object.keys(tags).filter((id) => tags[id].includes(tag));
+      const bookmarks = (await getBookmarksByIds(ids, tags)).sort(byOpenCount);
+      sendResponse({ bookmarks, tags: names, tag });
       return;
     }
 
-    const [searchedBookmarks, openCounts, starred] = await Promise.all([
-      chrome.bookmarks.search(request.data),
-      getOpenCounts(),
-      getStarred(),
-    ]);
+    const searchedBookmarks = await chrome.bookmarks.search(request.data);
     const bookmarks = searchedBookmarks
-      .filter((b: Bookmark) => b.id && b.url)
-      .map((b: Bookmark) => {
-        return {
-          id: b.id,
-          title: b.title,
-          url: b.url,
-          starred: starred.includes(b.id),
-        };
-      })
+      .filter((b) => b.id && b.url)
+      .map((b) => toBookmark(b, tags))
       // Most opened first. Sort is stable, so ties keep Chrome's order.
-      .sort((a, b) => (openCounts[b.id] ?? 0) - (openCounts[a.id] ?? 0));
+      .sort(byOpenCount);
 
     sendResponse({ bookmarks: bookmarks });
   }
@@ -88,25 +107,15 @@ const asyncFunctionWithAwait = async (
     await chrome.tabs.create({ url: bookmark.url });
   }
 
-  if (request.action === ACTION_TYPE.TOGGLE_STAR) {
-    const starred = await getStarred();
-    const isStarred = starred.includes(request.data);
-    await setStarred(
-      isStarred
-        ? starred.filter((id) => id !== request.data)
-        : [...starred, request.data]
-    );
-    sendResponse({ starred: !isStarred });
+  if (request.action === ACTION_TYPE.SET_TAGS) {
+    const tags = await getTags();
+    const next = cleanTags(request.tags);
+    if (next.length) tags[request.data] = next;
+    else delete tags[request.data];
+    await setTags(tags);
+    sendResponse({ tags: next });
   }
 
-  if (request.action === ACTION_TYPE.REORDER_STARRED) {
-    const starred = await getStarred();
-    // The popup may list rows that were just unstarred, and starred ids
-    // past the 15 it shows; drop the former and keep the latter at the end.
-    const ordered = (request.ids ?? []).filter((id) => starred.includes(id));
-    const rest = starred.filter((id) => !ordered.includes(id));
-    await setStarred([...ordered, ...rest]);
-  }
 };
 
 chrome.runtime.onMessage.addListener(
@@ -127,8 +136,9 @@ chrome.bookmarks.onRemoved.addListener(async (id: string) => {
     await setOpenCounts(openCounts);
   }
 
-  const starred = await getStarred();
-  if (starred.includes(id)) {
-    await setStarred(starred.filter((starredId) => starredId !== id));
+  const tags = await getTags();
+  if (id in tags) {
+    delete tags[id];
+    await setTags(tags);
   }
 });

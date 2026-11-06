@@ -7,7 +7,7 @@ import Payload from "./interface/Payload";
 import Highlight from "./component/Highlight";
 
 const MAX_BOOKMARKS_COUNT = 8;
-const MAX_STARRED_COUNT = 15;
+const MAX_TAGGED_COUNT = 15;
 // How long the "opening" effect plays before the new tab steals focus
 // and closes the popup.
 const LAUNCH_DELAY_MS = 250;
@@ -15,6 +15,8 @@ const LAUNCH_DELAY_MS = 250;
 const INTRO_MS = 600;
 // How long to wait for a second digit after "1" when 10+ items exist.
 const SECOND_DIGIT_WAIT_MS = 600;
+// How long an empty result during IME composition waits before showing.
+const COMPOSING_EMPTY_DELAY_MS = 300;
 
 const sendMessage = (payload: Payload, callback?: (response: any) => void) => {
   // chrome.* is missing outside the extension (dev server, tests).
@@ -46,7 +48,10 @@ function App() {
   const [indexMode, setIndexMode] = useState<boolean>(false);
   const [launchingIndex, setLaunchingIndex] = useState<number | null>(null);
   const [intro, setIntro] = useState<boolean>(true);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Initial screen tabs, one per tag. null until the first load picks one.
+  const [tagNames, setTagNames] = useState<string[]>([]);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [editingTagsId, setEditingTagsId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null); //ts
   const lastRequestIdRef = useRef<number>(0);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -75,62 +80,56 @@ function App() {
     window.setTimeout(() => sendMessage(payload), LAUNCH_DELAY_MS);
   };
 
-  const canReorder = isInitialScreen && !indexMode;
-
-  const saveOrder = (list: Bookmark[]) => {
-    sendMessage({
-      action: ACTION_TYPE.REORDER_STARRED,
-      data: "",
-      ids: list.map((b) => b.id),
-    });
+  const selectTag = (tag: string | null) => {
+    clearPendingDigit();
+    setIndexMode(false);
+    setActiveTag(tag);
+    searchBookmarks("", false, tag);
   };
 
-  const moved = (list: Bookmark[], from: number, to: number) => {
-    const next = [...list];
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item);
-    return next;
+  const closeTagEditor = () => {
+    setEditingTagsId(null);
+    inputRef.current?.focus();
   };
 
-  // Drag and drop: rows shift live while dragging, saved on release.
-  const handleDragStart = (e: React.DragEvent, bookmark: Bookmark) => {
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-    setDraggingId(bookmark.id);
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    if (draggingId === null) return;
-    e.preventDefault();
-    const from = bookmarks.findIndex((b) => b.id === draggingId);
-    if (from === -1 || from === index) return;
-    setBookmarks(moved(bookmarks, from, index));
-    setActiveIndex(index);
-  };
-
-  const handleDragEnd = () => {
-    if (draggingId === null) return;
-    setDraggingId(null);
-    saveOrder(bookmarks);
-  };
-
-  const toggleStar = (e: React.MouseEvent, bookmark: Bookmark) => {
-    e.stopPropagation();
+  const saveTags = (bookmark: Bookmark, text: string) => {
     const payload: Payload = {
-      action: ACTION_TYPE.TOGGLE_STAR,
+      action: ACTION_TYPE.SET_TAGS,
       data: bookmark.id,
+      tags: text.split(","),
     };
-
     sendMessage(payload, (response) => {
       if (!response) return;
-      const starred: boolean = response.starred;
-
-      // Keep the row in place even on the initial screen, so a star
-      // turned off by mistake can be turned back on. It drops off the
-      // initial screen the next time the popup opens.
+      const tags: string[] = response.tags;
+      // The row stays even if it loses the open tab's tag, and tabs are
+      // only added, so a tab never vanishes while open.
       setBookmarks((prev) =>
-        prev.map((b) => (b.id === bookmark.id ? { ...b, starred } : b))
+        prev.map((b) => (b.id === bookmark.id ? { ...b, tags } : b))
+      );
+      setTagNames((prev) =>
+        Array.from(new Set([...prev, ...tags])).sort((a, b) =>
+          a.localeCompare(b)
+        )
       );
     });
+    closeTagEditor();
+  };
+
+  const handleTagEditorKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    bookmark: Bookmark
+  ) => {
+    // Keep popup shortcuts (arrows, numbers, Enter to open) out of it.
+    e.stopPropagation();
+    if (e.nativeEvent.isComposing) return;
+    if (e.code === "Enter") {
+      e.preventDefault();
+      saveTags(bookmark, e.currentTarget.value);
+    }
+    if (e.code === "Escape") {
+      e.preventDefault();
+      closeTagEditor();
+    }
   };
 
   const clearPendingDigit = () => {
@@ -210,19 +209,17 @@ function App() {
       }
     }
 
-    // Option + Up/Down moves the selected row on the initial screen.
+    // Left/Right switches tabs on the initial screen; the input is
+    // empty there, so the caret has nowhere to go anyway.
     if (
-      canReorder &&
-      e.altKey &&
-      (e.code === "ArrowUp" || e.code === "ArrowDown")
+      isInitialScreen &&
+      tagNames.length > 0 &&
+      (e.code === "ArrowLeft" || e.code === "ArrowRight")
     ) {
       e.preventDefault();
-      const to = activeIndex + (e.code === "ArrowUp" ? -1 : 1);
-      if (to < 0 || to >= bookmarks.length) return;
-      const next = moved(bookmarks, activeIndex, to);
-      setBookmarks(next);
-      setActiveIndex(to);
-      saveOrder(next);
+      const current = Math.max(tagNames.indexOf(activeTag ?? ""), 0);
+      const next = current + (e.code === "ArrowLeft" ? -1 : 1);
+      if (next >= 0 && next < tagNames.length) selectTag(tagNames[next]);
       return;
     }
 
@@ -245,25 +242,41 @@ function App() {
     }
   };
 
-  const searchBookmarks = (value: string, isComposing: boolean) => {
+  const searchBookmarks = (
+    value: string,
+    isComposing: boolean,
+    tag: string | null = activeTag
+  ) => {
     const requestId = ++lastRequestIdRef.current;
     const payload: Payload = {
       action: ACTION_TYPE.GET_BOOKMARKS,
       data: value,
+      ...(tag !== null && { tag }),
     };
 
     sendMessage(payload, (response) => {
       // Drop responses that arrive after a newer search was sent.
       if (requestId !== lastRequestIdRef.current) return;
       if (!response || !response.bookmarks) return;
+      if (response.tags) setTagNames(response.tags);
+      // Initial screen responses say which tag they listed.
+      if ("tag" in response) setActiveTag(response.tag);
 
       // While an IME is composing (e.g. "위" -> "윜" -> "위키"), the
-      // intermediate syllable often matches nothing. Keep the previous
-      // results instead of flashing "No bookmarks found".
-      if (isComposing && response.bookmarks.length === 0) return;
+      // intermediate syllable often matches nothing. Wait briefly before
+      // showing "No bookmarks found"; the next keystroke cancels it. A
+      // syllable left uncommitted ("대") still shows it after the wait.
+      if (isComposing && response.bookmarks.length === 0) {
+        window.setTimeout(() => {
+          if (requestId !== lastRequestIdRef.current) return;
+          setBookmarks([]);
+          setActiveIndex(0);
+        }, COMPOSING_EMPTY_DELAY_MS);
+        return;
+      }
 
       const limit =
-        value.trim() === "" ? MAX_STARRED_COUNT : MAX_BOOKMARKS_COUNT;
+        value.trim() === "" ? MAX_TAGGED_COUNT : MAX_BOOKMARKS_COUNT;
       setBookmarks(response.bookmarks.slice(0, limit));
       // New results start at the top row, so show the top of the list.
       if (listRef.current) listRef.current.scrollTop = 0;
@@ -311,7 +324,7 @@ function App() {
   useEffect(() => {
     inputRef.current?.focus();
     const introTimer = window.setTimeout(() => setIntro(false), INTRO_MS);
-    // Load the starred bookmarks for the initial screen.
+    // Load the first tag's bookmarks for the initial screen.
     searchBookmarks("", false);
     return () => {
       window.clearTimeout(introTimer);
@@ -336,16 +349,39 @@ function App() {
           value={keyword}
         />
       </InputGroup>
+      {isInitialScreen && tagNames.length > 0 && (
+        <div className="tag-tabs mb-2" role="tablist">
+          {tagNames.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              role="tab"
+              aria-selected={tag === activeTag}
+              className={tag === activeTag ? "active" : ""}
+              // Keep focus in the search input so typing still searches.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => selectTag(tag)}
+            >
+              #{tag}
+            </button>
+          ))}
+        </div>
+      )}
       <ListGroup
         ref={listRef}
         className={intro ? "bookmark-list intro" : "bookmark-list"}
       >
         {bookmarks.length === 0 && (
           <ListGroup.Item className="text-center">
-            {isInitialScreen ? (
+            {isInitialScreen && activeTag !== null ? (
               <>
-                <i className="bi bi-star me-2" />
-                <span>Star a bookmark to pin it here</span>
+                <i className="bi bi-tag me-2" />
+                <span>No bookmarks tagged #{activeTag}</span>
+              </>
+            ) : isInitialScreen ? (
+              <>
+                <i className="bi bi-tag me-2" />
+                <span>Tag a bookmark to see it here</span>
               </>
             ) : (
               <>
@@ -359,21 +395,16 @@ function App() {
           const isActive = index === activeIndex;
           const isLaunching = index === launchingIndex;
           const favicon = faviconUrl(bookmark.url);
+          const isEditingTags = bookmark.id === editingTagsId;
+          const tags = bookmark.tags ?? [];
           return (
             <ListGroup.Item
               onMouseMove={(e) => handleMouseMove(e, index)}
-              draggable={canReorder}
-              onDragStart={(e) => handleDragStart(e, bookmark)}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDrop={(e) => e.preventDefault()}
-              onDragEnd={handleDragEnd}
               key={bookmark.id}
               active={isActive}
               className={[
                 "d-flex align-items-center",
-                isInitialScreen ? "py-2" : "",
                 isLaunching ? "launching" : "",
-                bookmark.id === draggingId ? "dragging" : "",
               ].join(" ")}
               onClick={() => openBookmark(index)}
             >
@@ -396,8 +427,24 @@ function App() {
               <div className="flex-grow-1 overflow-hidden">
                 <div className="text-truncate">
                   <Highlight text={bookmark.title} keyword={keyword} />
+                  {tags.map((tag) => (
+                    <span key={tag} className="tag-chip ms-1">
+                      #{tag}
+                    </span>
+                  ))}
                 </div>
-                {!isInitialScreen && (
+                {isEditingTags ? (
+                  <input
+                    className="tag-editor fs-7"
+                    autoFocus
+                    defaultValue={tags.join(", ")}
+                    placeholder="Tags, separated by commas"
+                    aria-label="Tags"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => handleTagEditorKeyDown(e, bookmark)}
+                    onBlur={closeTagEditor}
+                  />
+                ) : (
                   <div className="text-truncate text-muted fs-7">
                     <Highlight text={bookmark.url ?? ""} keyword={keyword} />
                   </div>
@@ -405,16 +452,17 @@ function App() {
               </div>
               <button
                 type="button"
-                className="star-toggle"
-                aria-label={bookmark.starred ? "Unstar" : "Star"}
-                aria-pressed={!!bookmark.starred}
-                onClick={(e) => toggleStar(e, bookmark)}
+                className="row-toggle tag-toggle"
+                aria-label="Edit tags"
+                // Keep focus off the button so the editor's blur does not
+                // fire first and reopen it.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingTagsId(isEditingTags ? null : bookmark.id);
+                }}
               >
-                <i
-                  className={
-                    bookmark.starred ? "bi bi-star-fill starred" : "bi bi-star"
-                  }
-                />
+                <i className={tags.length ? "bi bi-tag-fill" : "bi bi-tag"} />
               </button>
             </ListGroup.Item>
           );
